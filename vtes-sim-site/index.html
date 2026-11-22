@@ -4,7 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VTES Simulator & Calendar | VEKN Iberia</title>
-  <meta name="description" content="Calendário de eventos VEKN (PT/ES) e simulador de combates VTES com IA">
+  <meta name="description" content="Calendário de eventos VEKN (PT, ES, BR, US) e simulador de combates VTES com IA">
+  <!-- Bandeiras SVG (flag-icons, MIT) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.5.0/css/flag-icons.min.css"
+        integrity="sha384-8olrmTcwXL3OYMeB+2ok8jx9/U/FZxeLnoRWdu1Pyi+lakrkqoI7hfysfQF5Q1Xx" crossorigin="anonymous">
   <link rel="stylesheet" href="styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cinzel:wght@600&display=swap" rel="stylesheet">
@@ -27,7 +30,7 @@
     <main class="main-content">
       <header class="site-header">
         <h1>VTES <span class="accent">Simulator</span> & Calendar</h1>
-        <p class="tagline">Simulação de combates com IA · Calendário VEKN Iberia</p>
+        <p class="tagline">Simulação de combates com IA · Calendário VEKN (PT · ES · BR · US)</p>
       </header>
 
       <nav class="tabs">
@@ -43,18 +46,18 @@
             <label>
               País:
               <select id="country-filter">
-                <option value="all">Todos (PT + ES)</option>
+                <option value="all">Todos os países</option>
                 <option value="PT">Portugal</option>
                 <option value="ES">Espanha</option>
-                <option value="other">Outros</option>
+                <option value="BR">Brasil</option>
+                <option value="US">Estados Unidos</option>
               </select>
             </label>
             <label>
               Mês:
               <select id="month-filter">
-                <option value="2026-11">Novembro 2026</option>
-                <option value="2026-12">Dezembro 2026</option>
-                <option value="2027-01">Janeiro 2027</option>
+                <!-- Preenchido via JS a partir de events.json -->
+                <option value="">Todos os meses</option>
               </select>
             </label>
             <button id="refresh-events" class="btn-secondary">Atualizar</button>
@@ -62,8 +65,9 @@
         </div>
 
         <div class="calendar-info">
-          <p>Dados baseados no <a href="https://www.vekn.net/event-calendar?country=PT&date=2026-11" target="_blank" rel="noopener">calendário oficial VEKN</a>. 
-          Um Lambda diário pode atualizar o ficheiro <code>events.json</code> no S3.</p>
+          <p>Eventos de Portugal, Espanha, Brasil e Estados Unidos, obtidos do
+          <a href="https://www.vekn.net/event-calendar" target="_blank" rel="noopener">calendário oficial VEKN</a>
+          e da <a href="https://vtes.es/en/league/season" target="_blank" rel="noopener">Liga Española (vtes.es)</a>.</p>
         </div>
 
         <div id="events-container" class="events-grid">
@@ -80,7 +84,7 @@
       <section id="simulator" class="tab-panel">
         <div class="panel-header">
           <h2>Simulador de Combates VTES</h2>
-          <p class="subtitle">Envie 2 a 5 decks. O backend (Ollama + Bert via N8N) processará a simulação.</p>
+          <p class="subtitle">Envie 2 a 5 decks. Nossa IA vai processar a simulação.</p>
         </div>
 
         <form id="sim-form" class="sim-form">
@@ -131,7 +135,6 @@
   <footer class="site-footer">
     <p>Não afiliado oficialmente à VEKN ou Paradox Interactive. 
     Materiais de V:TES © Paradox Interactive AB. Usados sob fair use / community.</p>
-    <p>Site estático em S3 · Atualização de calendário via Lambda recomendada</p>
   </footer>
 
   <script src="app.js"></script>
