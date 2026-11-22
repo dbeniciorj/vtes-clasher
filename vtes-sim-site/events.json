@@ -1,0 +1,34 @@
+[
+  {
+    "id": "13597",
+    "title": "Liga GL/PT 26-27 - A New Night",
+    "date": "2026-10-31",
+    "country": "PT",
+    "location": "Portugal",
+    "link": "https://www.vekn.net/event-calendar/event/13597"
+  },
+  {
+    "id": "sample-pt-lisboa",
+    "title": "Torneio Local Lisboa",
+    "date": "2026-11-15",
+    "country": "PT",
+    "location": "Lisboa, Portugal",
+    "link": "https://www.vekn.net/event-calendar"
+  },
+  {
+    "id": "sample-es-madrid",
+    "title": "Gran Prix Madrid",
+    "date": "2026-11-22",
+    "country": "ES",
+    "location": "Madrid, España",
+    "link": "https://www.vekn.net/event-calendar"
+  },
+  {
+    "id": "cleansing-ritual",
+    "title": "Cleansing Ritual (exemplo TWD)",
+    "date": "2026-10-25",
+    "country": "PT",
+    "location": "Metairie, United States (exemplo)",
+    "link": "#"
+  }
+]

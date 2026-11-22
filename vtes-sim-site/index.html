@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VTES Simulator & Calendar | VEKN Iberia</title>
+  <meta name="description" content="Calendário de eventos VEKN (PT/ES) e simulador de combates VTES com IA">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cinzel:wght@600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="page-wrapper">
+    <!-- Left Ad Sidebar -->
+    <aside class="ad-sidebar left-ad" id="left-ad">
+      <div class="ad-placeholder">
+        <span>Publicidade</span>
+        <small>Espaço para AdSense / afiliados</small>
+        <!-- Insira aqui o script de anúncios, ex:
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXX"></script>
+        <ins class="adsbygoogle" style="display:block" data-ad-client="ca-pub-XXXX" data-ad-slot="YYYY" data-ad-format="auto"></ins>
+        <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+        -->
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="site-header">
+        <h1>VTES <span class="accent">Simulator</span> & Calendar</h1>
+        <p class="tagline">Simulação de combates com IA · Calendário VEKN Iberia</p>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="calendar">📅 Calendário de Eventos</button>
+        <button class="tab-btn" data-tab="simulator">⚔️ Simulador de Combates</button>
+      </nav>
+
+      <!-- TAB: CALENDAR -->
+      <section id="calendar" class="tab-panel active">
+        <div class="panel-header">
+          <h2>Eventos VEKN</h2>
+          <div class="filters">
+            <label>
+              País:
+              <select id="country-filter">
+                <option value="all">Todos (PT + ES)</option>
+                <option value="PT">Portugal</option>
+                <option value="ES">Espanha</option>
+                <option value="other">Outros</option>
+              </select>
+            </label>
+            <label>
+              Mês:
+              <select id="month-filter">
+                <option value="2026-11">Novembro 2026</option>
+                <option value="2026-12">Dezembro 2026</option>
+                <option value="2027-01">Janeiro 2027</option>
+              </select>
+            </label>
+            <button id="refresh-events" class="btn-secondary">Atualizar</button>
+          </div>
+        </div>
+
+        <div class="calendar-info">
+          <p>Dados baseados no <a href="https://www.vekn.net/event-calendar?country=PT&date=2026-11" target="_blank" rel="noopener">calendário oficial VEKN</a>. 
+          Um Lambda diário pode atualizar o ficheiro <code>events.json</code> no S3.</p>
+        </div>
+
+        <div id="events-container" class="events-grid">
+          <!-- Preenchido via JS -->
+        </div>
+
+        <div class="calendar-footer">
+          <p>Última atualização dos dados: <span id="last-update">—</span></p>
+          <a href="https://www.vekn.net/event-calendar" target="_blank" class="btn-link">Ver calendário completo no VEKN →</a>
+        </div>
+      </section>
+
+      <!-- TAB: SIMULATOR -->
+      <section id="simulator" class="tab-panel">
+        <div class="panel-header">
+          <h2>Simulador de Combates VTES</h2>
+          <p class="subtitle">Envie 2 a 5 decks. O backend (Ollama + Bert via N8N) processará a simulação.</p>
+        </div>
+
+        <form id="sim-form" class="sim-form">
+          <div class="deck-inputs" id="deck-inputs">
+            <!-- Deck slots gerados dinamicamente -->
+          </div>
+
+          <div class="form-actions">
+            <button type="button" id="add-deck" class="btn-secondary">+ Adicionar Deck</button>
+            <button type="submit" class="btn-primary" id="run-sim">⚔️ Iniciar Simulação</button>
+          </div>
+        </form>
+
+        <div id="sim-status" class="sim-status hidden">
+          <div class="spinner"></div>
+          <p>A processar simulação com Bert...</p>
+        </div>
+
+        <div id="sim-result" class="sim-result hidden">
+          <h3>Resultado da Simulação</h3>
+          <pre id="result-content"></pre>
+        </div>
+
+        <div class="sim-help">
+          <h4>Como informar os decks</h4>
+          <ul>
+            <li><strong>Upload TXT / TWD</strong> — formato textual clássico (como os exemplos fornecidos)</li>
+            <li><strong>Colar texto</strong> — descrição completa do deck</li>
+            <li><strong>Link</strong> — 
+              <code>https://vdb.im/decks/XXXX</code> ou 
+              <code>https://vtesdecks.com/deck/...</code>
+            </li>
+          </ul>
+          <p>O frontend envia os dados para o endpoint configurado (N8N / Ollama). Ajuste a URL em <code>app.js</code>.</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- Right Ad Sidebar -->
+    <aside class="ad-sidebar right-ad" id="right-ad">
+      <div class="ad-placeholder">
+        <span>Publicidade</span>
+        <small>Espaço para AdSense / afiliados</small>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="site-footer">
+    <p>Não afiliado oficialmente à VEKN ou Paradox Interactive. 
+    Materiais de V:TES © Paradox Interactive AB. Usados sob fair use / community.</p>
+    <p>Site estático em S3 · Atualização de calendário via Lambda recomendada</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
