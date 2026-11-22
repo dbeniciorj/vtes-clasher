@@ -11,41 +11,43 @@ const CONFIG = {
   EVENTS_JSON: 'events.json'
 };
 
-// ---------- Sample events (fallback / initial) ----------
-const SAMPLE_EVENTS = [
-  {
-    id: '13597',
-    title: 'Liga GL/PT 26-27 - A New Night',
-    date: '2026-10-31',
-    country: 'PT',
-    location: 'Portugal',
-    link: 'https://www.vekn.net/event-calendar/event/13597'
-  },
-  {
-    id: 'sample-pt-1',
-    title: 'Torneio Local Lisboa',
-    date: '2026-11-15',
-    country: 'PT',
-    location: 'Lisboa, Portugal',
-    link: 'https://www.vekn.net/event-calendar'
-  },
-  {
-    id: 'sample-es-1',
-    title: 'Gran Prix Madrid',
-    date: '2026-11-22',
-    country: 'ES',
-    location: 'Madrid, España',
-    link: 'https://www.vekn.net/event-calendar'
-  },
-  {
-    id: 'sample-pt-2',
-    title: 'Cleansing Ritual',
-    date: '2026-10-25',
-    country: 'PT',
-    location: 'Metairie (exemplo TWD)',
-    link: '#'
-  }
-];
+// ---------- Helpers ----------
+// Os dados vêm de um site externo (VEKN): escapar sempre antes de pôr no HTML.
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Só aceita links para as fontes conhecidas (VEKN e Liga Española / vtes.es).
+function safeLink(url) {
+  return /^https:\/\/((www|archon)\.)?(vekn\.net|vtes\.es)\//.test(url || '') ? url : 'https://www.vekn.net/event-calendar';
+}
+
+const COUNTRY_NAMES = {
+  PT: 'Portugal',
+  ES: 'Espanha',
+  BR: 'Brasil',
+  US: 'Estados Unidos'
+};
+
+// Bandeira (flag-icons, classe "fi fi-xx") + sigla do país.
+function countryBadge(code) {
+  const cc = String(code || '').toUpperCase();
+  const flag = /^[A-Z]{2}$/.test(cc)
+    ? `<span class="fi fi-${cc.toLowerCase()}" aria-hidden="true"></span>`
+    : '';
+  const name = COUNTRY_NAMES[cc] || cc;
+  return `<div class="event-country" title="${escapeHtml(name)}">${flag}<span>${escapeHtml(cc)}</span></div>`;
+}
+
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
 
 // ---------- Tabs ----------
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -58,43 +60,70 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // ---------- Calendar ----------
-let allEvents = [...SAMPLE_EVENTS];
+let allEvents = [];
+let loadError = false;
+
+// Preenche o filtro de meses com os meses do events.json (mantém a escolha atual).
+function populateMonthFilter(months) {
+  const select = document.getElementById('month-filter');
+  const previous = select.value;
+  const fallback = months.includes(currentMonthKey()) ? currentMonthKey() : (months[0] || '');
+
+  select.innerHTML = '<option value="">Todos os meses</option>' + months.map(m => {
+    const label = new Date(m + '-15T12:00:00').toLocaleString('pt-PT', { month: 'long', year: 'numeric' });
+    return `<option value="${escapeHtml(m)}">${escapeHtml(label.charAt(0).toUpperCase() + label.slice(1))}</option>`;
+  }).join('');
+
+  select.value = (previous && months.includes(previous)) ? previous : fallback;
+}
 
 async function loadEvents() {
   try {
     const res = await fetch(CONFIG.EVENTS_JSON + '?t=' + Date.now());
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length) {
-        allEvents = data;
-        document.getElementById('last-update').textContent = new Date().toLocaleString('pt-PT');
-      }
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    // Formato novo: { generated_at, months, events: [...] }; formato antigo: [...]
+    const events = Array.isArray(data) ? data : (data.events || []);
+    // Meses = janela da VEKN (data.months) + meses de qualquer evento (ex.: vtes.es)
+    const months = [...new Set([
+      ...(!Array.isArray(data) && Array.isArray(data.months) ? data.months : []),
+      ...events.map(ev => (ev.date || '').slice(0, 7))
+    ].filter(m => /^\d{4}-\d{2}$/.test(m)))].sort();
+
+    allEvents = events;
+    loadError = false;
+    populateMonthFilter(months);
+
+    const generatedAt = !Array.isArray(data) && data.generated_at ? new Date(data.generated_at) : null;
+    document.getElementById('last-update').textContent =
+      generatedAt && !isNaN(generatedAt) ? generatedAt.toLocaleString('pt-PT') : '—';
   } catch (e) {
-    console.warn('Não foi possível carregar events.json, a usar dados de exemplo.', e);
+    console.warn('Não foi possível carregar events.json.', e);
+    loadError = true;
   }
   renderEvents();
 }
 
 function renderEvents() {
   const country = document.getElementById('country-filter').value;
-  const month = document.getElementById('month-filter').value; // YYYY-MM
+  const month = document.getElementById('month-filter').value; // YYYY-MM ou '' (todos)
 
-  let filtered = allEvents.filter(ev => {
-    const matchCountry =
-      country === 'all' ? (ev.country === 'PT' || ev.country === 'ES') :
-      country === 'other' ? (ev.country !== 'PT' && ev.country !== 'ES') :
-      ev.country === country;
+  const filtered = allEvents.filter(ev => {
+    const matchCountry = country === 'all' || ev.country === country;
     const matchMonth = !month || (ev.date && ev.date.startsWith(month));
     return matchCountry && matchMonth;
   });
 
-  // sort by date
-  filtered.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  filtered.sort((a, b) =>
+    (a.date || '').localeCompare(b.date || '') || (a.time || '').localeCompare(b.time || ''));
 
   const container = document.getElementById('events-container');
   if (!filtered.length) {
-    container.innerHTML = `<p style="color:var(--text-muted);padding:1rem 0;">Nenhum evento encontrado para os filtros selecionados.</p>`;
+    const msg = loadError
+      ? 'Não foi possível carregar os eventos. Tenta novamente mais tarde.'
+      : 'Nenhum evento encontrado para os filtros selecionados.';
+    container.innerHTML = `<p style="color:var(--text-muted);padding:1rem 0;">${msg}</p>`;
     return;
   }
 
@@ -102,17 +131,20 @@ function renderEvents() {
     const d = new Date(ev.date + 'T12:00:00');
     const day = d.getDate();
     const monthShort = d.toLocaleString('pt-PT', { month: 'short' });
+    const meta = [ev.time, ev.type, ev.league].filter(Boolean).join(' · ');
+    const place = [ev.venue, ev.location].filter(Boolean).join(' — ');
     return `
       <article class="event-card">
         <div class="event-date">
           <div class="day">${day}</div>
-          <div class="month">${monthShort}</div>
+          <div class="month">${escapeHtml(monthShort)}</div>
         </div>
         <div class="event-info">
-          <h3><a href="${ev.link || '#'}" target="_blank" rel="noopener">${ev.title}</a></h3>
-          <div class="event-meta">${ev.location || ''}</div>
+          <h3><a href="${escapeHtml(safeLink(ev.link))}" target="_blank" rel="noopener">${escapeHtml(ev.title)}</a></h3>
+          ${meta ? `<div class="event-meta">${escapeHtml(meta)}</div>` : ''}
+          <div class="event-meta">${escapeHtml(place)}</div>
         </div>
-        <div class="event-country">${ev.country}</div>
+        ${countryBadge(ev.country)}
       </article>
     `;
   }).join('');
