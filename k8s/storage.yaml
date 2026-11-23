@@ -1,0 +1,143 @@
+# PersistentVolume for CV and JD files.
+# Populated by deploy.ps1 via `podman cp` into the minikube container - the 9p
+# `minikube mount` is broken with the Podman driver on Windows (host IP resolves
+# to <nil>), so the data is copied in before the manifests are applied.
+#
+# storageClassName: "" is REQUIRED on every PV/PVC pair below. Without it the
+# PVCs inherit the default "standard" StorageClass, which cannot bind to these
+# class-less PVs, and minikube's dynamic provisioner silently creates empty
+# volumes instead - leaving the pods with no data.
+# claimRef pins each PV to one PVC, since mycoe-db-pv and n8n-data-pv are
+# otherwise identical (1Gi RWO) and could bind to the wrong claim.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mycoe-data-pv
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadOnlyMany
+  hostPath:
+    path: /data/bert
+    type: DirectoryOrCreate
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: mycoe
+    name: mycoe-data-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mycoe-data-pvc
+  namespace: mycoe
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: ""
+  volumeName: mycoe-data-pv
+---
+# PersistentVolume for SQLite database (read-write)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mycoe-db-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /data/mycoe-db
+    type: DirectoryOrCreate
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: mycoe
+    name: mycoe-db-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mycoe-db-pvc
+  namespace: mycoe
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: ""
+  volumeName: mycoe-db-pv
+---
+# PersistentVolume for N8N data
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: n8n-data-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /data/n8n
+    type: DirectoryOrCreate
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: mycoe
+    name: n8n-data-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: n8n-data-pvc
+  namespace: mycoe
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: ""
+  volumeName: n8n-data-pv
+---
+# Ollama model cache. Retained on purge so the 4.7GB llama3 download happens
+# once; the init container and the server share this volume, without which the
+# pulled model would not be visible to the server at all.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ollama-models-pv
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /data/ollama
+    type: DirectoryOrCreate
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  claimRef:
+    namespace: mycoe
+    name: ollama-models-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models-pvc
+  namespace: mycoe
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: ""
+  volumeName: ollama-models-pv

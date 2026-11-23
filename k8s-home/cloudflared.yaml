@@ -1,0 +1,55 @@
+# Cloudflare Tunnel connector (remotely-managed tunnel).
+# The routes (n8n.dbenicio.com -> http://n8n-service.mycoe.svc.cluster.local:5678)
+# are configured in the Cloudflare Zero Trust dashboard, not here.
+#
+# The token lives in a Secret created by hand (see README.md), never in git:
+#   kubectl -n mycoe create secret generic cloudflared-token --from-literal=token="$TUNNEL_TOKEN"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: mycoe
+spec:
+  # Two connectors: one can restart/update while the other keeps the tunnel up.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:2026.10.7
+          imagePullPolicy: IfNotPresent
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --loglevel
+            - info
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-token
+                  key: token
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 1
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi

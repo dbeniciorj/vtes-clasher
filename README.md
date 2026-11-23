@@ -358,7 +358,8 @@ O domínio `dbenicio.com` está na Cloudflare. É lá que estão as configuraç�
      USE_MOCK: true   // false quando o backend estiver pronto
    };
    ```
-3. Backend (N8N):
+3. Backend (N8N). Roda no servidor de casa (minikube) e é publicado via Cloudflare Tunnel em
+   `https://n8n.dbenicio.com`; ver [k8s-home/README.md](k8s-home/README.md).
    - recebe `{ decks: [ {name, url, text}, ... ], source: "vtes-sim-frontend" }`;
    - se houver `url`, busca o deck (vdb.im / vtesdecks.com);
    - monta o prompt para o modelo (Ollama);

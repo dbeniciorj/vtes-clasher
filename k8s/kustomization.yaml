@@ -1,0 +1,15 @@
+# Base manifest set, so environment overlays (../k8s-aks) can reuse these files.
+# deploy.ps1 (Minikube) still applies the files one by one and ignores this.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - storage.yaml
+  - configmap-workflow.yaml
+  - n8n-deployment.yaml
+  - prometheus.yaml
+  - grafana.yaml
+  - elasticsearch.yaml
+  - ollama-deployment.yaml
+  - dashboard-deployment.yaml
+  - cleanup-cronjob.yaml

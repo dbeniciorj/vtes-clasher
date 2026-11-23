@@ -1,0 +1,59 @@
+# Single-node Elasticsearch managed by the ECK operator.
+# The operator itself lives in the elastic-system namespace and is installed by
+# deploy.ps1 from download.elastic.co (see the ECK_VERSION variable there).
+#
+# POC posture: no authentication and no TLS.
+#   - http.tls.selfSignedCertificate.disabled serves the API over plain http.
+#   - xpack.security.authc.anonymous grants every unauthenticated request the
+#     superuser role. ECK forces xpack.security.enabled=true and does not treat
+#     the anonymous.* keys as reserved, so they merge into elasticsearch.yml.
+#     The auto-generated `elastic` user still exists as a fallback; its password
+#     lives in the mycoe-es-es-elastic-user secret and deploy.ps1 prints it.
+#
+# node.store.allow_mmap=false avoids needing vm.max_map_count=262144 on the
+# minikube node, which does not survive `minikube stop`.
+#
+# Do not add discovery.type=single-node: ECK manages cluster.initial_master_nodes
+# and Elasticsearch refuses to boot when both are set. count: 1 is sufficient.
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: mycoe-es
+  namespace: mycoe
+spec:
+  version: 9.5.0
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: true
+  nodeSets:
+    - name: default
+      count: 1
+      config:
+        node.roles: ["master", "data", "ingest"]
+        node.store.allow_mmap: false
+        xpack.security.authc.anonymous.username: anonymous
+        xpack.security.authc.anonymous.roles: superuser
+        xpack.security.authc.anonymous.authz_exception: false
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              env:
+                - name: ES_JAVA_OPTS
+                  value: "-Xms1g -Xmx1g"
+              resources:
+                requests:
+                  memory: 2Gi
+                  cpu: 500m
+                limits:
+                  memory: 2Gi
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi
+            storageClassName: standard

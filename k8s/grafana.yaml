@@ -1,0 +1,360 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data-pvc
+  namespace: mycoe
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: standard
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: mycoe
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-service:9090
+        isDefault: true
+        jsonData:
+          httpMethod: POST
+          timeInterval: 30s
+      # Score history / lead lifecycle live in Elasticsearch. Auth is off on the
+      # POC cluster, so no basicAuth block is needed.
+      - name: Elasticsearch-MatchHistory
+        type: elasticsearch
+        access: proxy
+        url: http://mycoe-es-es-http:9200
+        database: mycoe-match-history
+        jsonData:
+          index: mycoe-match-history
+          timeField: "@timestamp"
+          esVersion: "8.0.0"
+      - name: Elasticsearch-LeadLifecycle
+        type: elasticsearch
+        access: proxy
+        url: http://mycoe-es-es-http:9200
+        database: mycoe-lead-lifecycle
+        jsonData:
+          index: mycoe-lead-lifecycle
+          timeField: "@timestamp"
+          esVersion: "8.0.0"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: mycoe
+data:
+  dashboard.yaml: |
+    apiVersion: 1
+    providers:
+      - name: mycoe
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-json
+  namespace: mycoe
+data:
+  demand-supply.json: |
+    {
+      "title": "Demand & Supply Lead Finder",
+      "uid": "mycoe-ds-v1",
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "tags": ["mycoe", "n8n"],
+      "timezone": "browser",
+      "time": { "from": "now-7d", "to": "now" },
+      "panels": [
+        {
+          "id": 1, "type": "row", "title": "Group 1 — Weather (current state of demand-supply-lead-finder)",
+          "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+        },
+        {
+          "id": 2, "title": "Total Executions", "type": "stat",
+          "gridPos": { "h": 4, "w": 5, "x": 0, "y": 1 },
+          "fieldConfig": { "defaults": { "color": { "fixedColor": "#37872D", "mode": "fixed" }, "unit": "short" } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none", "textMode": "auto" },
+          "targets": [{ "expr": "sum(n8n_workflow_executions_total) or vector(0)", "legendFormat": "" }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 3, "title": "Health Score", "type": "stat",
+          "gridPos": { "h": 4, "w": 5, "x": 5, "y": 1 },
+          "fieldConfig": {
+            "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{"color": "red","value": null},{"color": "yellow","value": 50},{"color": "green","value": 80}] } }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+          "targets": [{
+            "expr": "100 * sum(n8n_workflow_executions_total{status=\"success\"}) / (sum(n8n_workflow_executions_total) > 0) or vector(0)",
+            "legendFormat": ""
+          }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 4, "title": "Avg Duration", "type": "stat",
+          "gridPos": { "h": 4, "w": 5, "x": 10, "y": 1 },
+          "fieldConfig": { "defaults": { "unit": "s", "color": { "fixedColor": "#37872D", "mode": "fixed" } } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+          "targets": [{
+            "expr": "sum(rate(n8n_workflow_executions_duration_seconds_sum[7d])) / (sum(rate(n8n_workflow_executions_duration_seconds_count[7d])) > 0) or vector(0)",
+            "legendFormat": ""
+          }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 5, "title": "Last Result", "type": "stat",
+          "gridPos": { "h": 4, "w": 9, "x": 15, "y": 1 },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [{"type": "value","options": {"0": {"text": "NO DATA","color": "grey"},"1": {"text": "SUCCESS","color": "green"},"2": {"text": "FAILED","color": "red"},"3": {"text": "RUNNING","color": "yellow"}}}],
+              "thresholds": { "mode": "absolute", "steps": [{"color": "grey","value": null}] }
+            }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none", "textMode": "value" },
+          "targets": [{
+            "expr": "clamp_max(clamp_min(sum(increase(n8n_workflow_executions_total{status=\"success\"}[5m])) * 1 + sum(increase(n8n_workflow_executions_total{status=\"failed\"}[5m])) * 2, 0), 3) or vector(0)",
+            "legendFormat": ""
+          }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 6, "title": "Execution Rate (per hour)", "type": "timeseries",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 5 },
+          "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "lineWidth": 2 }, "unit": "short" } },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+          "targets": [{ "expr": "sum(rate(n8n_workflow_executions_total[1h])) * 3600", "legendFormat": "executions/hr" }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 10, "type": "row", "title": "Group 2 — DORA (delivery performance — proxies)",
+          "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 }
+        },
+        {
+          "id": 11, "title": "Execution Frequency (7d)", "type": "stat",
+          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 14 },
+          "fieldConfig": { "defaults": { "unit": "short", "color": { "fixedColor": "#F2CC0C", "mode": "fixed" } } },
+          "options": { "reduceOptions": { "calcs": ["sum"] }, "colorMode": "value", "graphMode": "none" },
+          "targets": [{ "expr": "increase(n8n_workflow_executions_total[7d]) or vector(0)", "legendFormat": "" }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 12, "title": "Lead Time (avg duration)", "type": "stat",
+          "gridPos": { "h": 4, "w": 8, "x": 8, "y": 14 },
+          "fieldConfig": { "defaults": { "unit": "s", "color": { "fixedColor": "#37872D", "mode": "fixed" } } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+          "targets": [{
+            "expr": "sum(rate(n8n_workflow_executions_duration_seconds_sum[7d])) / (sum(rate(n8n_workflow_executions_duration_seconds_count[7d])) > 0) or vector(0)",
+            "legendFormat": ""
+          }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 13, "title": "Error Rate (7d)", "type": "stat",
+          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 14 },
+          "fieldConfig": {
+            "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{"color": "green","value": null},{"color": "yellow","value": 20},{"color": "red","value": 40}] } }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+          "targets": [{
+            "expr": "100 * sum(increase(n8n_workflow_executions_total{status=\"failed\"}[7d])) / (sum(increase(n8n_workflow_executions_total[7d])) > 0) or vector(0)",
+            "legendFormat": ""
+          }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 20, "type": "row", "title": "Group 3 — N8N Health (pipeline engine)",
+          "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }
+        },
+        {
+          "id": 21, "title": "Success Rate", "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 19 },
+          "fieldConfig": {
+            "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{"color": "red","value": null},{"color": "yellow","value": 50},{"color": "green","value": 80}] } }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+          "targets": [{
+            "expr": "100 * sum(n8n_workflow_executions_total{status=\"success\"}) / (sum(n8n_workflow_executions_total) > 0) or vector(0)",
+            "legendFormat": ""
+          }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 22, "title": "Candidates Scored", "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 19 },
+          "fieldConfig": { "defaults": { "unit": "short", "color": { "fixedColor": "#37872D", "mode": "fixed" } } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+          "targets": [{ "expr": "mycoe_job_matches_total or vector(0)", "legendFormat": "" }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 23, "title": "Abort Rate", "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 19 },
+          "fieldConfig": {
+            "defaults": { "unit": "percent", "thresholds": { "mode": "absolute", "steps": [{"color": "green","value": null},{"color": "yellow","value": 10},{"color": "red","value": 30}] } }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+          "targets": [{
+            "expr": "100 * sum(n8n_workflow_executions_total{status=\"waiting\"}) / (sum(n8n_workflow_executions_total) > 0) or vector(0)",
+            "legendFormat": ""
+          }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 24, "title": "Node.js Memory (MB)", "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 19 },
+          "fieldConfig": { "defaults": { "unit": "decmbytes", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{"color": "green","value": null},{"color": "yellow","value": 400},{"color": "red","value": 700}] } } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+          "targets": [{ "expr": "nodejs_heap_size_used_bytes / 1024 / 1024 or vector(0)", "legendFormat": "" }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 30, "type": "row", "title": "Group 4 — Demand & Supply (lead-finder metrics)",
+          "collapsed": false, "gridPos": { "h": 1, "w": 24, "x": 0, "y": 23 }
+        },
+        {
+          "id": 31, "title": "Shortlisted (score >= 80)", "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 24 },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "thresholds": { "mode": "absolute", "steps": [{"color": "red","value": null},{"color": "yellow","value": 30},{"color": "green","value": 60}] }
+            }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+          "targets": [{ "expr": "mycoe_candidate_pass_rate or vector(0)", "legendFormat": "" }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 32, "title": "Won Placements", "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 24 },
+          "fieldConfig": { "defaults": { "unit": "short", "color": { "fixedColor": "#37872D", "mode": "fixed" } } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+          "targets": [{ "expr": "mycoe_placements_won_total or vector(0)", "legendFormat": "" }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 33, "title": "On Hold", "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 24 },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [{"color": "green","value": null},{"color": "yellow","value": 1},{"color": "red","value": 5}] } }
+          },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "none" },
+          "targets": [{ "expr": "mycoe_placements_on_hold_total or vector(0)", "legendFormat": "" }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        },
+        {
+          "id": 34, "title": "Jobs Loaded", "type": "stat",
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 24 },
+          "fieldConfig": { "defaults": { "unit": "short", "color": { "fixedColor": "#C4162A", "mode": "fixed" } } },
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value", "graphMode": "none" },
+          "targets": [{ "expr": "mycoe_jobs_total or vector(0)", "legendFormat": "" }],
+          "datasource": { "type": "prometheus", "uid": "prometheus" }
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: mycoe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      # Grafana runs as uid 472; a fresh block volume is root-owned.
+      securityContext:
+        fsGroup: 472
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.4.2
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: "admin"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              value: "mycoe2024"
+            # POC: anonymous visitors get the Admin role, so the UI is fully
+            # usable with no login. The admin account above still works and is
+            # kept as an escape hatch for org-level settings.
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Admin"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: "/var/lib/grafana/dashboards/demand-supply.json"
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboard-json
+              mountPath: /var/lib/grafana/dashboards
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: grafana-data
+          persistentVolumeClaim:
+            claimName: grafana-data-pvc
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboard-json
+          configMap:
+            name: grafana-dashboard-json
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: mycoe
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+      nodePort: 30300
+  type: NodePort

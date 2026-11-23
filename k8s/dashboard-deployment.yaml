@@ -1,0 +1,138 @@
+# Demo-grade credentials committed on purpose: this MVP runs on a local
+# Minikube. Replace them before the dashboard is reachable by anyone else.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: dashboard-auth
+  namespace: mycoe
+type: Opaque
+stringData:
+  secret-key: mycoe-dev-secret-change-in-prod
+  admin-username: admin
+  admin-password: "MyCoE2024!admin"
+  service-api-token: mycoe-service-token
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: mycoe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: docker.io/library/mycoe-dashboard:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 5000
+          env:
+            - name: CV_DIR
+              value: /data/cvs
+            - name: JD_DIR
+              value: /data/jds
+            - name: DATABASE_URL
+              value: sqlite:////db/mycoe.db
+            - name: OLLAMA_URL
+              value: http://ollama-service:11434
+            - name: OLLAMA_MODEL
+              value: llama3
+            - name: EMBEDDING_MODEL
+              value: nomic-embed-text
+            # ECK exposes the cluster as <name>-es-http on 9200. TLS and auth are
+            # off, so no credentials are needed.
+            - name: ES_URL
+              value: http://mycoe-es-es-http:9200
+            - name: ES_ENABLED
+              value: "true"
+            # Webhook trigger of the "CoE CV Scoring" workflow, so "Find
+            # matches" on the dashboard starts the same run as the N8N editor.
+            - name: N8N_WEBHOOK_URL
+              value: http://n8n-service:5678/webhook/mycoe-match
+            # Workday is behind corporate SSO, so the scraper drives a browser
+            # the operator already signed in with. That browser runs on their
+            # workstation, which the pod reaches through the Minikube host
+            # gateway - not inside the cluster.
+            - name: WORKDAY_ENABLED
+              value: "true"
+            - name: WORKDAY_CDP_URL
+              value: http://host.minikube.internal:9222
+            # Signs the session cookie. Rotating it logs everybody out.
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-auth
+                  key: secret-key
+            # Seeded only while the user table is empty; the account is flagged
+            # must_change_password, so this value stops working on first login.
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-auth
+                  key: admin-username
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-auth
+                  key: admin-password
+            # Presented as X-API-Key by N8N and the cleanup CronJob, which
+            # cannot hold a browser session.
+            - name: SERVICE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: dashboard-auth
+                  key: service-api-token
+          volumeMounts:
+            - name: data-volume
+              mountPath: /data/cvs
+              subPath: "Cloud & App Security - Secure Digital Core"
+              readOnly: true
+            - name: data-volume
+              mountPath: /data/jds
+              subPath: JDs
+              readOnly: true
+            - name: db-volume
+              mountPath: /db
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              # "/" is behind the login gate and answers 302; the login page
+              # itself is the honest readiness signal.
+              path: /login
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: mycoe-data-pvc
+        - name: db-volume
+          persistentVolumeClaim:
+            claimName: mycoe-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-service
+  namespace: mycoe
+spec:
+  selector:
+    app: dashboard
+  ports:
+    - port: 5000
+      targetPort: 5000
+      nodePort: 30500
+  type: NodePort

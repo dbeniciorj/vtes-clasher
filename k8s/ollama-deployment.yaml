@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: mycoe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+        - name: ollama
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 11434
+          volumeMounts:
+            # Must be the same volume the init container pulled into, otherwise
+            # the model is invisible here and every request 404s.
+            - name: ollama-models
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "1"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+          readinessProbe:
+            httpGet:
+              path: /api/tags
+              port: 11434
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      initContainers:
+        - name: pull-model
+          image: ollama/ollama:latest
+          imagePullPolicy: IfNotPresent
+          # `kill %1` fails here: sh runs non-interactively with job control
+          # disabled, so %1 never resolves and the container exits 1, which makes
+          # Kubernetes restart it and re-download the whole 4.7GB model forever.
+          # Letting the script end kills the backgrounded server anyway, so the
+          # exit code is simply `ollama pull`'s.
+          command:
+            - sh
+            - -c
+            - |
+              ollama serve >/tmp/serve.log 2>&1 &
+              for i in $(seq 1 30); do
+                ollama list >/dev/null 2>&1 && break
+                sleep 2
+              done
+              # llama3 scores candidates. nomic-embed-text is required separately
+              # because Ollama refuses embeddings for generative models, so llama3
+              # cannot produce the CV/JD vectors.
+              ollama pull llama3
+              ollama pull nomic-embed-text
+          volumeMounts:
+            - name: ollama-models
+              mountPath: /root/.ollama
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1"
+      volumes:
+        - name: ollama-models
+          persistentVolumeClaim:
+            claimName: ollama-models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: mycoe
+spec:
+  selector:
+    app: ollama
+  ports:
+    - port: 11434
+      targetPort: 11434

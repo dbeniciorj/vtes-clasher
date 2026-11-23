@@ -1,0 +1,122 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: n8n
+  namespace: mycoe
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: n8n
+  template:
+    metadata:
+      labels:
+        app: n8n
+    spec:
+      # n8n runs as `node` (uid/gid 1000). A freshly provisioned block volume
+      # (e.g. Azure Disk on AKS) is root:root 755, so without fsGroup n8n
+      # crashes on start with EACCES writing /home/node/.n8n/config.
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: import-workflow
+          image: n8nio/n8n:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: N8N_USER_MANAGEMENT_DISABLED
+              value: "true"
+          command:
+            - sh
+            - -c
+            - |
+              cp /workflow/demand-supply-lead-finder.json /home/node/.n8n/workflow-import.json
+              n8n import:workflow --input=/home/node/.n8n/workflow-import.json || true
+              # Importing does not activate: n8n only serves /webhook/<path> for
+              # an active workflow, and the dashboard's "Find matches" button
+              # calls /webhook/mycoe-match. publish:workflow is the current
+              # command; update:workflow is the pre-2.x spelling.
+              n8n publish:workflow --id=coe-cv-scoring-v1 || n8n update:workflow --id=coe-cv-scoring-v1 --active=true || true
+          volumeMounts:
+            - name: workflow-config
+              mountPath: /workflow
+            - name: n8n-data
+              mountPath: /home/node/.n8n
+      containers:
+        - name: n8n
+          image: n8nio/n8n:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5678
+          env:
+            - name: N8N_HOST
+              value: "0.0.0.0"
+            - name: N8N_PORT
+              value: "5678"
+            - name: N8N_PROTOCOL
+              value: "http"
+            - name: WEBHOOK_URL
+              value: "http://n8n-service:5678"
+            # Kept for older n8n images only. n8n 2.x IGNORES this flag - auth
+            # cannot be disabled there, so deploy.ps1 provisions a single owner
+            # account (admin@mycoe.local) with global:owner rights instead and
+            # prints the credentials in its access summary.
+            - name: N8N_USER_MANAGEMENT_DISABLED
+              value: "true"
+            # n8n marks its session cookie Secure by default, which browsers
+            # reject over the plain-http port-forward used to reach the UI.
+            - name: N8N_SECURE_COOKIE
+              value: "false"
+            - name: N8N_ONBOARDING_FLOW_DISABLED
+              value: "true"
+            - name: N8N_DIAGNOSTICS_ENABLED
+              value: "false"
+            - name: N8N_HIRING_BANNER_ENABLED
+              value: "false"
+            - name: EXECUTIONS_PROCESS
+              value: main
+            - name: N8N_METRICS
+              value: "true"
+            - name: N8N_METRICS_PREFIX
+              value: "n8n_"
+            - name: EXECUTIONS_DATA_PRUNE
+              value: "true"
+            - name: EXECUTIONS_DATA_MAX_AGE
+              value: "8760"
+          volumeMounts:
+            - name: n8n-data
+              mountPath: /home/node/.n8n
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5678
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: workflow-config
+          configMap:
+            name: n8n-workflow
+        - name: n8n-data
+          persistentVolumeClaim:
+            claimName: n8n-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: n8n-service
+  namespace: mycoe
+spec:
+  selector:
+    app: n8n
+  ports:
+    - port: 5678
+      targetPort: 5678
+      nodePort: 30678
+  type: NodePort

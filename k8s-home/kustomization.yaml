@@ -1,0 +1,154 @@
+# Home overlay: n8n on the home Ubuntu (minikube, single node), published on
+# the internet through a Cloudflare Tunnel.
+#   kubectl apply -k k8s-home
+# Full runbook: k8s-home/README.md
+#
+# What differs from the Minikube base (../k8s):
+#   - Only n8n is deployed (plus the workflow ConfigMap it imports). Everything
+#     else in the base is deleted below. NOTE: the imported mycoe workflow calls
+#     ollama-service and dashboard-service; those steps fail until the services
+#     exist. To add Ollama, remove "ollama*" from the delete lists below (needs
+#     4-8 GiB RAM for the minikube node).
+#   - The n8n hostPath volume (/data/n8n) is created root:root 755, and fsGroup
+#     does not apply to hostPath, so n8n (uid 1000) would crash with EACCES.
+#     A root init container chowns it first.
+#   - n8n knows its public URL (WEBHOOK_URL / N8N_EDITOR_BASE_URL), trusts one
+#     proxy hop (cloudflared) and uses Secure cookies, since it is served over
+#     HTTPS by Cloudflare.
+#   - The Service is ClusterIP: the only way in is the tunnel (cloudflared runs
+#     in this namespace). No NodePort open on the LAN.
+#   - cloudflared (cloudflared.yaml) reads the tunnel token from the Secret
+#     "cloudflared-token", created by hand (never committed).
+#
+# Public hostname: n8n.dbenicio.com. To change it, edit the two URLs below and
+# the Public Hostname of the tunnel in the Cloudflare dashboard.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../k8s
+  - cloudflared.yaml
+
+patches:
+  # ---- Remove everything that is not n8n ----------------------------------
+  - target:
+      kind: PersistentVolume
+      name: mycoe-data-pv|mycoe-db-pv|ollama-models-pv
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: PersistentVolume
+      metadata:
+        name: not-n8n
+  - target:
+      kind: PersistentVolumeClaim
+      name: mycoe-data-pvc|mycoe-db-pvc|ollama-models-pvc|prometheus-data-pvc|grafana-data-pvc
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: not-n8n
+  - target:
+      kind: ConfigMap
+      name: prometheus-config|grafana-.*
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: not-n8n
+  - target:
+      kind: Deployment
+      name: prometheus|grafana|ollama|dashboard
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: not-n8n
+  - target:
+      kind: Service
+      name: prometheus-service|grafana-service|ollama-service|dashboard-service
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: not-n8n
+  - target:
+      kind: Secret
+      name: dashboard-auth
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: not-n8n
+  - target:
+      kind: Elasticsearch
+    patch: |-
+      $patch: delete
+      apiVersion: elasticsearch.k8s.elastic.co/v1
+      kind: Elasticsearch
+      metadata:
+        name: not-n8n
+  - target:
+      kind: CronJob
+    patch: |-
+      $patch: delete
+      apiVersion: batch/v1
+      kind: CronJob
+      metadata:
+        name: not-n8n
+
+  # ---- n8n: fix hostPath ownership before anything writes to it -----------
+  - target:
+      kind: Deployment
+      name: n8n
+    patch: |-
+      - op: add
+        path: /spec/template/spec/initContainers/0
+        value:
+          name: fix-permissions
+          image: busybox:1.36
+          command: ["sh", "-c", "chown -R 1000:1000 /home/node/.n8n"]
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: n8n-data
+              mountPath: /home/node/.n8n
+
+  # ---- n8n: public URL behind Cloudflare -----------------------------------
+  - target:
+      kind: Deployment
+      name: n8n
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: n8n
+      spec:
+        template:
+          spec:
+            containers:
+              - name: n8n
+                env:
+                  - name: WEBHOOK_URL
+                    value: "https://n8n.dbenicio.com/"
+                  - name: N8N_EDITOR_BASE_URL
+                    value: "https://n8n.dbenicio.com/"
+                  - name: N8N_PROXY_HOPS
+                    value: "1"
+                  - name: N8N_SECURE_COOKIE
+                    value: "true"
+
+  # ---- n8n Service: reachable only from inside the cluster (tunnel) --------
+  - target:
+      kind: Service
+      name: n8n-service
+    patch: |-
+      - op: replace
+        path: /spec/type
+        value: ClusterIP
+      - op: remove
+        path: /spec/ports/0/nodePort

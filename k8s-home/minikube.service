@@ -1,0 +1,26 @@
+# systemd unit: starts minikube when the home Ubuntu boots, so n8n and the
+# Cloudflare Tunnel come back on their own after a reboot / power cut.
+#
+# Install (see README.md, step 5):
+#   sudo cp k8s-home/minikube.service /etc/systemd/system/minikube.service
+#   sudo sed -i "s/SEU_USUARIO/$USER/" /etc/systemd/system/minikube.service
+#   sudo systemctl daemon-reload && sudo systemctl enable minikube
+#
+# Driver "docker": keep User= as the user that created the cluster (must be in
+# the docker group). Driver "none": minikube needs root, so set User=root.
+# If minikube is not in /usr/local/bin, fix the two paths (`command -v minikube`).
+[Unit]
+Description=minikube (n8n + cloudflared)
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=SEU_USUARIO
+ExecStart=/usr/local/bin/minikube start
+ExecStop=/usr/local/bin/minikube stop
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
